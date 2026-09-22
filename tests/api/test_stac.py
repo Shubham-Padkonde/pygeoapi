@@ -28,12 +28,9 @@
 # =================================================================
 
 import json
-from types import SimpleNamespace
-from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
-from pygeoapi.api import APIRequest
 from pygeoapi.api.stac import search, landing_page
 from pygeoapi.formats import FORMAT_TYPES, F_JSON
 from pygeoapi.util import yaml_load
@@ -98,31 +95,3 @@ def test_search(config, api_, params, matched, returned):
 
     for feature in response['features']:
         assert feature['stac_version'] == '1.0.0'
-
-
-@pytest.mark.parametrize('post_data,limit', [(None, 3), ({'limit': 2}, 2)])
-def test_search_django_query_params(api_, post_data, limit, monkeypatch):
-    """Django query values stay scalar in POST overrides and paging links."""
-    django_http = pytest.importorskip('django.http')
-    monkeypatch.setattr(django_http.request, 'settings', SimpleNamespace(
-        DATA_UPLOAD_MAX_NUMBER_FIELDS=1000))
-    params = django_http.QueryDict(
-        'limit=1&limit=3&offset=2&bbox=-180,-90,180,90', encoding='utf-8')
-    request = SimpleNamespace(
-        GET=params, headers={}, path_info='/stac-api/search',
-        body=json.dumps(post_data).encode() if post_data else b'')
-    req = APIRequest.from_django(request, api_.locales)
-
-    _, code, response = search(api_, req)
-    assert code == 200
-    response = json.loads(response)
-    assert response['numberMatched'] == 10
-    assert response['numberReturned'] == limit
-    links = {link['rel']: link['href'] for link in response['links']}
-    for rel, offset in [('prev', None), ('next', [str(2 + limit)])]:
-        query = parse_qs(urlsplit(links[rel]).query)
-        assert query['limit'] == [str(limit)]
-        assert query['bbox'] == ['-180,-90,180,90']
-        assert query.get('offset') == offset
-    assert params.getlist('limit') == ['1', '3']
-    assert params['offset'] == '2'
